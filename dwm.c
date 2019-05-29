@@ -59,7 +59,7 @@
 
 /* enums */
 enum { CurNormal, CurResize, CurMove, CurLast }; /* cursor */
-enum { SchemeNorm, SchemeSel }; /* color schemes */
+enum { SchemeNorm, SchemeSel, SchemeUrg }; /* color schemes */
 enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
        NetWMFullscreen, NetActiveWindow, NetWMWindowType,
        NetWMWindowTypeDialog, NetClientList, NetLast }; /* EWMH atoms */
@@ -119,6 +119,7 @@ struct Monitor {
 	int by;               /* bar geometry */
 	int mx, my, mw, mh;   /* screen size */
 	int wx, wy, ww, wh;   /* window area  */
+#include "util/vanitygaps-struct.h"
 	unsigned int seltags;
 	unsigned int sellt;
 	unsigned int tagset[2];
@@ -180,7 +181,6 @@ static void killclient(const Arg *arg);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
-static void monocle(Monitor *m);
 static void motionnotify(XEvent *e);
 static void movemouse(const Arg *arg);
 static Client *nexttiled(Client *c);
@@ -208,7 +208,6 @@ static void sigchld(int unused);
 static void spawn(const Arg *arg);
 static void tag(const Arg *arg);
 static void tagmon(const Arg *arg);
-static void tile(Monitor *);
 static void togglebar(const Arg *arg);
 static void togglefloating(const Arg *arg);
 static void toggletag(const Arg *arg);
@@ -244,20 +243,20 @@ static int lrpad;            /* sum of left and right padding for text */
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static unsigned int numlockmask = 0;
 static void (*handler[LASTEvent]) (XEvent *) = {
-	[ButtonPress] = buttonpress,
-	[ClientMessage] = clientmessage,
-	[ConfigureRequest] = configurerequest,
-	[ConfigureNotify] = configurenotify,
-	[DestroyNotify] = destroynotify,
-	[EnterNotify] = enternotify,
-	[Expose] = expose,
-	[FocusIn] = focusin,
-	[KeyPress] = keypress,
-	[MappingNotify] = mappingnotify,
-	[MapRequest] = maprequest,
-	[MotionNotify] = motionnotify,
-	[PropertyNotify] = propertynotify,
-	[UnmapNotify] = unmapnotify
+	[ButtonPress]         = buttonpress,
+	[ClientMessage]       = clientmessage,
+	[ConfigureRequest]    = configurerequest,
+	[ConfigureNotify]     = configurenotify,
+	[DestroyNotify]       = destroynotify,
+	[EnterNotify]         = enternotify,
+	[Expose]              = expose,
+	[FocusIn]             = focusin,
+	[KeyPress]            = keypress,
+	[MappingNotify]       = mappingnotify,
+	[MapRequest]          = maprequest,
+	[MotionNotify]        = motionnotify,
+	[PropertyNotify]      = propertynotify,
+	[UnmapNotify]         = unmapnotify
 };
 static Atom wmatom[WMLast], netatom[NetLast];
 static int running = 1;
@@ -268,8 +267,30 @@ static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root, wmcheckwin;
 
+// Move layouts into separate units.
+// #include "layouts/tiling.h"
+#include "util/vanitygaps-function.h"
+#include "layouts/vanitygaptile.h"
+#include "layouts/bottomstack.h"
+//#include "layouts/monocle.h"
+//#include "layouts/spiral.h"
+//#include "layouts/grid.h"
+#include "layouts/gapless-grid.h"
+#include "layouts/horizontal-grid.h"
+//#include "layouts/centered-master.h"
+
+// Add stack rotation functions.
+#include "util/rotate.h"
+
+static void cyclelayout(const Arg *arg);
 /* configuration, allows nested code to access above variables */
 #include "config.h"
+
+// Add layout cycle functions.
+#include "util/cycle-layout.h"
+
+// Add help function for color args.
+#include "util/cmd-color-help.h"
 
 /* compile-time check if all tags fit into an unsigned int bit array. */
 struct NumTags { char limitexceeded[LENGTH(tags) > 31 ? -1 : 1]; };
@@ -638,6 +659,7 @@ createmon(void)
 	m->nmaster = nmaster;
 	m->showbar = showbar;
 	m->topbar = topbar;
+#include "util/vanitygap-monitor.h"
 	m->lt[0] = &layouts[0];
 	m->lt[1] = &layouts[1 % LENGTH(layouts)];
 	strncpy(m->ltsymbol, layouts[0].symbol, sizeof m->ltsymbol);
@@ -1100,20 +1122,6 @@ maprequest(XEvent *e)
 		manage(ev->window, &wa);
 }
 
-void
-monocle(Monitor *m)
-{
-	unsigned int n = 0;
-	Client *c;
-
-	for (c = m->clients; c; c = c->next)
-		if (ISVISIBLE(c))
-			n++;
-	if (n > 0) /* override layout symbol */
-		snprintf(m->ltsymbol, sizeof m->ltsymbol, "[%d]", n);
-	for (c = nexttiled(m->clients); c; c = nexttiled(c->next))
-		resize(c, m->wx, m->wy, m->ww - 2 * c->bw, m->wh - 2 * c->bw, 0);
-}
 
 void
 motionnotify(XEvent *e)
@@ -1670,31 +1678,6 @@ tagmon(const Arg *arg)
 	sendmon(selmon->sel, dirtomon(arg->i));
 }
 
-void
-tile(Monitor *m)
-{
-	unsigned int i, n, h, mw, my, ty;
-	Client *c;
-
-	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
-	if (n == 0)
-		return;
-
-	if (n > m->nmaster)
-		mw = m->nmaster ? m->ww * m->mfact : 0;
-	else
-		mw = m->ww;
-	for (i = my = ty = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
-		if (i < m->nmaster) {
-			h = (m->wh - my) / (MIN(n, m->nmaster) - i);
-			resize(c, m->wx, m->wy + my, mw - (2*c->bw), h - (2*c->bw), 0);
-			my += HEIGHT(c);
-		} else {
-			h = (m->wh - ty) / (n - i);
-			resize(c, m->wx + mw, m->wy + ty, m->ww - mw - (2*c->bw), h - (2*c->bw), 0);
-			ty += HEIGHT(c);
-		}
-}
 
 void
 togglebar(const Arg *arg)
@@ -2127,10 +2110,29 @@ zoom(const Arg *arg)
 int
 main(int argc, char *argv[])
 {
-	if (argc == 2 && !strcmp("-v", argv[1]))
-		die("dwm-"VERSION);
-	else if (argc != 1)
-		die("usage: dwm [-v]");
+	// if (argc == 2 && !strcmp("-v", argv[1]))
+	// 	die("dwm-"VERSION);
+	// else if (argc != 1)
+	// 	die("usage: dwm [-v]");
+#include "util/cmd-color.h"
+	//for(int i=1;i<argc;i+=1){
+	//	if (!strcmp("-v", argv[i]))
+	//		die("dwm-"VERSION);
+	//	else if (!strcmp("-h", argv[i]) || !strcmp("--help", argv[i]))
+	//		die(help());
+	//	else if (!strcmp("-fn", argv[i])) /* font set */
+	//		fonts[0] = argv[++i];
+	//	else if (!strcmp("-nb",argv[i])) /* normal background color */
+	//		colors[SchemeNorm][1] = argv[++i];
+	//	else if (!strcmp("-nf",argv[i])) /* normal foreground color */
+	//		colors[SchemeNorm][0] = argv[++i];
+	//	else if (!strcmp("-sb",argv[i])) /* selected background color */
+	//		colors[SchemeSel][1] = argv[++i];
+	//	else if (!strcmp("-sf",argv[i])) /* selected foreground color */
+	//		colors[SchemeSel][0] = argv[++i];
+	//	else die(help());
+	//}
+
 	if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
 		fputs("warning: no locale support\n", stderr);
 	if (!(dpy = XOpenDisplay(NULL)))

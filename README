@@ -1,3 +1,9 @@
+This is my personal fork of dwm. It aims to keep code for different
+features in separate folder and directories in order to make maintaing
+the code and different patches more straighforward. There *should* be no
+issues, but you use it at your own risk!
+
+
 dwm - dynamic window manager
 ============================
 dwm is an extremely fast, small, and dynamic window manager for X.
