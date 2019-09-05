@@ -11,10 +11,10 @@ static void defaultgaps(const Arg *arg);
 static int enablegaps = 1;
 
 // Vanitygaps
-static const unsigned int gappih    = 24;       /* horiz inner gap between windows */
-static const unsigned int gappiv    = 24;       /* vert inner gap between windows */
-static const unsigned int gappoh    = 24;       /* horiz outer gap between windows and screen edge */
-static const unsigned int gappov    = 24;       /* vert outer gap between windows and screen edge */
+static const unsigned int gappih    = 20;       /* horiz inner gap between windows */
+static const unsigned int gappiv    = 20;       /* vert inner gap between windows */
+static const unsigned int gappoh    = 20;       /* horiz outer gap between windows and screen edge */
+static const unsigned int gappov    = 20;       /* vert outer gap between windows and screen edge */
 static const int smartgaps          = 0;        /* 1 means no outer gap when there is only one window */
 
 
@@ -33,9 +33,15 @@ setgaps(int oh, int ov, int ih, int iv)
 	arrange(selmon);
 }
 
+void tile(Monitor*);
+void gaplessgrid(Monitor*);
+
 void
 togglegaps(const Arg *arg)
 {
+	if (!(selmon -> lt[selmon->sellt] -> arrange == tile || selmon -> lt[selmon->sellt] -> arrange == gaplessgrid || selmon -> lt[selmon->sellt] -> arrange == bstack || selmon -> lt[selmon->sellt] -> arrange == monocle))
+		return;
+
 	enablegaps = !enablegaps;
 	arrange(selmon);
 }

@@ -49,7 +49,7 @@
 #define CLEANMASK(mask)         (mask & ~(numlockmask|LockMask) & (ShiftMask|ControlMask|Mod1Mask|Mod2Mask|Mod3Mask|Mod4Mask|Mod5Mask))
 #define INTERSECT(x,y,w,h,m)    (MAX(0, MIN((x)+(w),(m)->wx+(m)->ww) - MAX((x),(m)->wx)) \
                                * MAX(0, MIN((y)+(h),(m)->wy+(m)->wh) - MAX((y),(m)->wy)))
-#define ISVISIBLE(C)            ((C->tags & C->mon->tagset[C->mon->seltags]))
+#define ISVISIBLE(C)            ((C->tags & C->mon->tagset[C->mon->seltags]) || C->issticky)
 #define LENGTH(X)               (sizeof X / sizeof X[0])
 #define MOUSEMASK               (BUTTONMASK|PointerMotionMask)
 #define WIDTH(X)                ((X)->w + 2 * (X)->bw)
@@ -85,60 +85,75 @@ typedef struct {
 typedef struct Monitor Monitor;
 typedef struct Client Client;
 struct Client {
-	char name[256];
+	char name[256];    // WM_NAME atom.
 	float mina, maxa;
-	int x, y, w, h;
+	int x, y, w, h;    // x, y positions and width, height.
 	int oldx, oldy, oldw, oldh;
 	int basew, baseh, incw, inch, maxw, maxh, minw, minh;
 	int bw, oldbw;
 	unsigned int tags;
-	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen;
-	Client *next;
+	int sfx, sfy, sfw, sfh; // stored float geometry, used on mode revert.
+
+	int isfixed,     // Window behaviours.
+		iscentered,
+		issticky,
+		isfloating,
+		isurgent,
+		neverfocus,
+		oldstate,
+		isfullscreen;
+
+	Client *next;    // Pointer to next client in list.
 	Client *snext;
-	Monitor *mon;
-	Window win;
+	Monitor *mon;    // The monitor displaying the client.
+	Window win;      // Wrapped window instance.
 };
 
 typedef struct {
-	unsigned int mod;
-	KeySym keysym;
-	void (*func)(const Arg *);
-	const Arg arg;
+	unsigned int mod;          // Modifier key mask
+	KeySym keysym;             // Keysym/key name.
+	void (*func)(const Arg *); // Callback on key press.
+	const Arg arg;             // Argument to pass to callback.
 } Key;
 
 typedef struct {
-	const char *symbol;
-	void (*arrange)(Monitor *);
+	const char *symbol;         // Layout atom e.g. "[]=", "><>".
+	void (*arrange)(Monitor *); // Arrangement function.
 } Layout;
 
 struct Monitor {
-	char ltsymbol[16];
-	float mfact;
-	int nmaster;
-	int num;
-	int by;               /* bar geometry */
-	int mx, my, mw, mh;   /* screen size */
-	int wx, wy, ww, wh;   /* window area  */
+	char ltsymbol[16];      // Layout symbol string.
+	float mfact;            // Master proportion.
+	int nmaster;            // Number of clients in the master area.
+	int num;                // Number monitor.
+	int by;                 // Bar geometry.
+	int mx, my, mw, mh;     // Screen size.
+	int wx, wy, ww, wh;     // Window area.
 #include "util/vanitygaps-struct.h"
-	unsigned int seltags;
-	unsigned int sellt;
-	unsigned int tagset[2];
-	int showbar;
-	int topbar;
+	unsigned int seltags;   // Selected tags/bit vector.
+	unsigned int sellt;     // Selected layout index in monitor->lt.
+	unsigned int tagset[2]; //
+	int showbar;            // Show bar: yes/no.
+	int topbar;             // Bar position: top/bottom.
 	Client *clients;
-	Client *sel;
+	Client *sel;            // Selected client pointer.
 	Client *stack;
-	Monitor *next;
-	Window barwin;
-	const Layout *lt[2];
+	Monitor *next;          // Pointer to next monitor.
+	Window barwin;          // Handle for bar window.
+	const Layout *lt[2];    // Layouts array.
 };
 
 typedef struct {
-	const char *class;
-	const char *instance;
-	const char *title;
-	unsigned int tags;
-	int isfloating;
+	const char *class;    // WM atoms.
+	const char *instance; // WM atoms.
+	const char *title;    // WM atoms.
+
+	unsigned int tags;    // Tag mask.
+
+	int isfloating,       // Window behaviours.
+		issticky,
+		iscentered;
+
 	int monitor;
 } Rule;
 
@@ -211,6 +226,7 @@ static void tagmon(const Arg *arg);
 static void togglebar(const Arg *arg);
 static void togglefloating(const Arg *arg);
 static void toggletag(const Arg *arg);
+static void togglesticky(const Arg *arg);
 static void toggleview(const Arg *arg);
 static void unfocus(Client *c, int setfocus);
 static void unmanage(Client *c, int destroyed);
@@ -267,24 +283,24 @@ static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root, wmcheckwin;
 
-// Move layouts into separate units.
-// #include "layouts/tiling.h"
+static void bstack(Monitor *);
+static void monocle(Monitor *);
 #include "util/vanitygaps-function.h"
+// Move layouts into separate units.
 #include "layouts/vanitygaptile.h"
-#include "layouts/bottomstack.h"
-//#include "layouts/monocle.h"
-//#include "layouts/spiral.h"
-//#include "layouts/grid.h"
+#include "layouts/vanitybottomstack.h"
+#include "layouts/monocle.h"
 #include "layouts/gapless-grid.h"
-#include "layouts/horizontal-grid.h"
-//#include "layouts/centered-master.h"
 
 // Add stack rotation functions.
 #include "util/rotate.h"
+#include "util/attachBelow.h"
 
 static void cyclelayout(const Arg *arg);
+// void togglescratch(const Arg *arg);
 /* configuration, allows nested code to access above variables */
 #include "config.h"
+
 
 // Add layout cycle functions.
 #include "util/cycle-layout.h"
@@ -312,6 +328,13 @@ applyrules(Client *c)
 	class    = ch.res_class ? ch.res_class : broken;
 	instance = ch.res_name  ? ch.res_name  : broken;
 
+	// int floatingmon; // Set true if the current monitor layout is floating.
+    // if (selmon -> lt [selmon->sellt])
+	// 	floatingmon = selmon->lt[selmon->sellt] -> arrange == NULL;
+	// else
+	// 	floatingmon = 0;
+
+
 	for (i = 0; i < LENGTH(rules); i++) {
 		r = &rules[i];
 		if ((!r->title || strstr(c->name, r->title))
@@ -319,6 +342,8 @@ applyrules(Client *c)
 		&& (!r->instance || strstr(instance, r->instance)))
 		{
 			c->isfloating = r->isfloating;
+			c->issticky   = r->issticky;
+			c->iscentered = r->iscentered; // || c -> isfloating; // Start centered if centered rule OR current layout is floating.
 			c->tags |= r->tags;
 			for (m = mons; m && m->num != r->monitor; m = m->next);
 			if (m)
@@ -455,7 +480,7 @@ buttonpress(XEvent *e)
 		do
 			x += TEXTW(tags[i]);
 		while (ev->x >= x && ++i < LENGTH(tags));
-		if (i < LENGTH(tags)) {
+		if (i < LENGTH(tags) - SCRATCHPAD) {
 			click = ClkTagBar;
 			arg.ui = 1 << i;
 		} else if (ev->x < x + blw)
@@ -535,6 +560,7 @@ clientmessage(XEvent *e)
 {
 	XClientMessageEvent *cme = &e->xclient;
 	Client *c = wintoclient(cme->window);
+	int i; // focusonnetactive
 
 	if (!c)
 		return;
@@ -544,8 +570,15 @@ clientmessage(XEvent *e)
 			setfullscreen(c, (cme->data.l[0] == 1 /* _NET_WM_STATE_ADD    */
 				|| (cme->data.l[0] == 2 /* _NET_WM_STATE_TOGGLE */ && !c->isfullscreen)));
 	} else if (cme->message_type == netatom[NetActiveWindow]) {
-		if (c != selmon->sel && !c->isurgent)
-			seturgent(c, 1);
+//		if (c != selmon->sel && !c->isurgent)
+//			seturgent(c, 1);
+		for (i = 0; i < LENGTH(tags) && !((1 << i) & c->tags); i++);
+		if (i < LENGTH(tags)) {
+			const Arg a = {.ui = 1 << i};
+			view(&a);
+			focus(c);
+			restack(selmon);
+		}
 	}
 }
 
@@ -719,7 +752,7 @@ drawbar(Monitor *m)
 {
 	int x, w, sw = 0;
 	int boxs = drw->fonts->h / 9;
-	int boxw = drw->fonts->h / 6 + 2;
+	int boxw = (drw->fonts->h / 6 + 2) + 1;
 	unsigned int i, occ = 0, urg = 0;
 	Client *c;
 
@@ -736,7 +769,7 @@ drawbar(Monitor *m)
 			urg |= c->tags;
 	}
 	x = 0;
-	for (i = 0; i < LENGTH(tags); i++) {
+	for (i = 0; i < LENGTH(tags) - SCRATCHPAD; i++) {
 		w = TEXTW(tags[i]);
 		drw_setscheme(drw, scheme[m->tagset[m->seltags] & 1 << i ? SchemeSel : SchemeNorm]);
 		drw_text(drw, x, 0, w, bh, lrpad / 2, tags[i], urg & 1 << i);
@@ -985,10 +1018,19 @@ grabkeys(void)
 	}
 }
 
+
 void
 incnmaster(const Arg *arg)
 {
-	selmon->nmaster = MAX(selmon->nmaster + arg->i, 0);
+	unsigned n;
+	Client* c;
+	Monitor* m = selmon;
+	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
+
+	if (selmon ->nmaster + arg ->i > n)
+		return;
+
+	selmon->nmaster = MAX(selmon->nmaster + arg->i, 1); // Set 1 to be minimum number of master clients.
 	arrange(selmon);
 }
 
@@ -1071,6 +1113,12 @@ manage(Window w, XWindowAttributes *wa)
 		&& (c->x + (c->w / 2) < c->mon->wx + c->mon->ww)) ? bh : c->mon->my);
 	c->bw = borderpx;
 
+	if(c->iscentered) {
+		c->x = (c->mon->mw - WIDTH(c)) / 2;
+		c->y = (c->mon->mh - HEIGHT(c)) / 2;
+	}
+
+
 	wc.border_width = c->bw;
 	XConfigureWindow(dpy, w, CWBorderWidth, &wc);
 	XSetWindowBorder(dpy, w, scheme[SchemeNorm][ColBorder].pixel);
@@ -1078,13 +1126,22 @@ manage(Window w, XWindowAttributes *wa)
 	updatewindowtype(c);
 	updatesizehints(c);
 	updatewmhints(c);
+	c->sfx = c->x; // save floating position.
+	c->sfy = c->y;
+	c->sfw = c->w;
+	c->sfh = c->h;
 	XSelectInput(dpy, w, EnterWindowMask|FocusChangeMask|PropertyChangeMask|StructureNotifyMask);
 	grabbuttons(c, 0);
 	if (!c->isfloating)
 		c->isfloating = c->oldstate = trans != None || c->isfixed;
 	if (c->isfloating)
 		XRaiseWindow(dpy, c->win);
-	attach(c);
+	// attach(c);
+	if( attachbelow )
+		attachBelow(c);
+	else
+		attach(c);
+
 	attachstack(c);
 	XChangeProperty(dpy, root, netatom[NetClientList], XA_WINDOW, 32, PropModeAppend,
 		(unsigned char *) &(c->win), 1);
@@ -1697,8 +1754,19 @@ togglefloating(const Arg *arg)
 		return;
 	selmon->sel->isfloating = !selmon->sel->isfloating || selmon->sel->isfixed;
 	if (selmon->sel->isfloating)
-		resize(selmon->sel, selmon->sel->x, selmon->sel->y,
-			selmon->sel->w, selmon->sel->h, 0);
+		// resize(selmon->sel, selmon->sel->x, selmon->sel->y,
+		// 	selmon->sel->w, selmon->sel->h, 0);
+
+		/* restore last known float dimensions */
+		resize(selmon->sel, selmon->sel->sfx, selmon->sel->sfy,
+		       selmon->sel->sfw, selmon->sel->sfh, False);
+	else {
+		/* save last known float dimensions */
+		selmon->sel->sfx = selmon->sel->x;
+		selmon->sel->sfy = selmon->sel->y;
+		selmon->sel->sfw = selmon->sel->w;
+		selmon->sel->sfh = selmon->sel->h;
+	}
 	arrange(selmon);
 }
 
@@ -1715,6 +1783,15 @@ toggletag(const Arg *arg)
 		focus(NULL);
 		arrange(selmon);
 	}
+}
+
+void
+togglesticky(const Arg *arg)
+{
+	if (!selmon->sel)
+		return;
+	selmon->sel->issticky = !selmon->sel->issticky;
+	arrange(selmon);
 }
 
 void
@@ -1880,7 +1957,11 @@ updategeom(void)
 					m->clients = c->next;
 					detachstack(c);
 					c->mon = mons;
-					attach(c);
+					// attach(c);
+					if( attachbelow )
+						attachBelow(c);
+					else
+						attach(c);
 					attachstack(c);
 				}
 				if (m == selmon)

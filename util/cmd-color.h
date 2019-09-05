@@ -21,6 +21,15 @@
 			if (!strcmp("-sf",argv[i])) /* selected foreground color */
 				colors[SchemeSel][0] = argv[++i];
 		else
+			if (!strcmp("-sbr",argv[i])) /* selected border color */
+				colors[SchemeSel][2] = argv[++i];
+		else
+			if (!strcmp("-nbr",argv[i])) /* normal border color */
+				colors[SchemeNorm][2] = argv[++i];
+		// else
+		// 	if (!strcmp("-bpx", argv[i])) /* border pixels */
+		// 		sscanf(argv [++i], "%u", (unsigned*)(&borderpx));
+		else
 			die(help());
 	}
 		// else if (!strcmp("-df", argv[i])) /* dmenu font */

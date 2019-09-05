@@ -1,0 +1,2 @@
+#!/bin/sh
+make clean install 2>&1 | grep --color=always 'error\|warning'
