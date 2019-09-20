@@ -6,8 +6,10 @@
 static char dmenumon[2] = "0"; /* component of dmenucmd, manipulated in spawn() */
 static const char *dmenucmd[]     = { "perl",   HOME"/.bin/i3dmd",  NULL };
 static const char *menuScript[]   = { "bash", HOME"/i3/menuScript", NULL };
-static const char *termcmd[]      = { "urxvt",                      NULL };
-static const char *tabtermcmd[]   = { "tabd", "-name", "terminal", "urxvt", "-embed", NULL };
+//static const char *termcmd[]      = { "urxvt",                      NULL };
+static const char *termcmd[]      = { "st",                      NULL };
+//static const char *tabtermcmd[]   = { "tabd", "-name", "terminal", "urxvt", "-embed", NULL };
+static const char *tabtermcmd[]   = { "tabd", "-name", "terminal", "st", "-w", NULL };
 static const char *windowswitch[] = { "dmenu-switch", NULL };
 
 

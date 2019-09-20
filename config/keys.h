@@ -46,6 +46,13 @@ resizeFloating(const Arg *arg)
 	}
 }
 
+void
+focusDesktop(const Arg *_){
+	selmon->tagset[selmon->seltags] = 0;
+	focus (NULL);
+	arrange(selmon);
+}
+
 
 static Key keys[] = {
 	/* modifier                     key        function        argument */
@@ -131,6 +138,7 @@ static Key keys[] = {
 	{ MODKEY,                       XK_1,      view,           { .ui = ~0 }},
 	{ MODKEY|ShiftMask,             XK_1,      toggletag,      { .ui = ~0 }},
 
+	{ MODKEY,              XK_d, focusDesktop, { 0 }},
 	TAGKEYS(                        XK_7,                      0)
 	TAGKEYS(                        XK_8,                      1)
 	TAGKEYS(                        XK_9,                      2)
