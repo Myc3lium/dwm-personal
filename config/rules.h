@@ -1,10 +1,10 @@
 /* tagging */
 static const char *tags[] = {
-	"  ", // other.      0
-	" ﴣ ", // anon.       1
-	"  ", // firefox.    2
-	"  ", // terminal.   3
-	"  ", // media.      4
+	" ", // other.      0
+	" ", // anon.       1
+	" ", // firefox.    2
+	" ", // terminal.   3
+	" ", // media.      4
 
 	"",   // scratchpad. 5
 	"",   // monitor.    6

@@ -35,6 +35,7 @@ setgaps(int oh, int ov, int ih, int iv)
 
 void tile(Monitor*);
 void gaplessgrid(Monitor*);
+void toggleResizeHints();
 
 void
 togglegaps(const Arg *arg)
@@ -42,6 +43,7 @@ togglegaps(const Arg *arg)
 	if (!(selmon -> lt[selmon->sellt] -> arrange == tile || selmon -> lt[selmon->sellt] -> arrange == gaplessgrid || selmon -> lt[selmon->sellt] -> arrange == bstack || selmon -> lt[selmon->sellt] -> arrange == monocle))
 		return;
 
+	toggleResizeHints(); // Turn off resize hints when turning off gaps, so we don't get wierd gaps.
 	enablegaps = !enablegaps;
 	arrange(selmon);
 }
